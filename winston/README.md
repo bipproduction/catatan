@@ -257,3 +257,112 @@ export function log(entry: LogEntry) {
 export default frontendLogger;
 
 ```
+
+### Penggunaan
+
+### Client
+
+```ts
+function ApikeyCreate({ loadApikey }: { loadApikey: () => void }) {
+  const [form, setForm] = useState({ name: "" } as ApiKey);
+  const [loading, setLoading] = useState(false);
+  async function onCreate() {
+    if (form.name === "") {
+      alert("Please fill all the fields");
+      clientLogger.error("Please fill all the fields");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const res = await fetch(apies["/api/apikey/create"], {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${Token.value}`
+        },
+        body: JSON.stringify({ name: form.name } as ApiKey)
+      });
+
+      if (res.ok) {
+        setForm({ name: "" } as ApiKey);
+        loadApikey();
+        return;
+      }
+    } catch (error) {
+      clientLogger.error("Error apikey create:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+  return (
+    <Group>
+      <Stack p={"md"}>
+        <Title order={3}>create apikey</Title>
+        <TextInput
+          label="name"
+          placeholder="name"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+        />
+        <Button loading={loading} onClick={onCreate}>
+          create
+        </Button>
+      </Stack>
+    </Group>
+  );
+}
+```
+
+### Server / Backend
+
+```ts
+export const POST = (req: Request, { params }: { params: { id: string } }) =>
+  verifyUserToken(req, async (user) => {
+    const id = params.id === "root" ? null : params.id;
+    let { name } = await req.json();
+
+    if (!name) {
+      return new Response(JSON.stringify({ error: "name is required" }), {
+        status: 400
+      });
+    }
+
+    // Check if a directory with the same name already exists for this user
+    const existingDirs = await prisma.dir.findMany({
+      where: {
+        userId: user.id,
+        parentId: id,
+        name: {
+          startsWith: name
+        }
+      }
+    });
+
+    // If a directory with the same name exists, generate a unique name
+    if (existingDirs.length > 0) {
+      const baseName = name;
+      let newName = baseName;
+      let copyCount = 1;
+
+      // Check if the new name exists; if it does, increment the copy count and try again
+      while (existingDirs.some((dir) => dir.name === newName)) {
+        newName = `${baseName} (copy ${copyCount})`;
+        copyCount++;
+      }
+
+      name = newName;
+    }
+
+    // Create the new directory with the (possibly modified) name
+    const create = await prisma.dir.create({
+      data: { name, parentId: id, userId: user.id } as any
+    });
+
+    backendLogger.info(`Created directory: ${create.name}`);
+
+    return new Response(JSON.stringify({ data: create }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" }
+    });
+  });
+```
