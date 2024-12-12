@@ -1,5 +1,17 @@
 # winston
 
+```
+/Users/bip/Documents/projects/bip/wibu-storage/logs
+├── backend
+|  ├── combined-2024-12-11.log
+|  └── error-2024-12-11.log
+└── frontend
+   ├── combined-2024-12-11.log
+   └── error-2024-12-11.log
+
+directory: 2 file: 4
+```
+
 ### INSTALL
 
 `bun add winston winston-daily-rotate-file`
