@@ -366,3 +366,327 @@ export const POST = (req: Request, { params }: { params: { id: string } }) =>
     });
   });
 ```
+
+## Menampilkan
+
+### Api route
+
+```ts
+// app/api/logs/view/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs/promises';
+import path from 'path';
+
+interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  metadata?: any;
+}
+
+async function readLogFiles(directory: string): Promise<LogEntry[]> {
+  try {
+    const logPath = path.join(process.cwd(), directory);
+    const files = await fs.readdir(logPath);
+    const logFiles = files.filter(file => file.endsWith('.log'));
+
+    const allLogs: LogEntry[] = [];
+
+    for (const file of logFiles) {
+      const filePath = path.join(logPath, file);
+      const content = await fs.readFile(filePath, 'utf-8');
+      
+      // Parse setiap baris log
+      const logs = content
+        .split('\n')
+        .filter(Boolean)
+        .map(line => {
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter(Boolean);
+
+      allLogs.push(...logs);
+    }
+
+    // Sort berdasarkan timestamp, terbaru di atas
+    return allLogs.sort((a, b) => 
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+  } catch (error) {
+    console.error('Error reading log files:', error);
+    return [];
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    // Baca logs dari frontend dan backend
+    const frontendLogs = await readLogFiles('logs/frontend');
+    const backendLogs = await readLogFiles('logs/backend');
+
+    // Gabungkan dan sort semua logs
+    const allLogs = [...frontendLogs, ...backendLogs]
+      .sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+    return NextResponse.json({ logs: allLogs });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Failed to fetch logs' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### page route
+
+```css
+/* app/admin/logs/logs.module.css */
+.container {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  
+  .title {
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 16px;
+  }
+  
+  .filterContainer {
+    margin-bottom: 16px;
+  }
+  
+  .select {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    min-width: 200px;
+  }
+  
+  .logsContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .logItem {
+    padding: 16px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  .errorLog {
+    background-color: #fef2f2;
+  }
+  
+  .warnLog {
+    background-color: #fefce8;
+  }
+  
+  .infoLog {
+    background-color: #ffffff;
+  }
+  
+  .logHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .timestamp {
+    font-size: 14px;
+    color: #666;
+  }
+  
+  .level {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  
+  .errorLevel {
+    background-color: #fee2e2;
+    color: #991b1b;
+  }
+  
+  .warnLevel {
+    background-color: #fef3c7;
+    color: #92400e;
+  }
+  
+  .infoLevel {
+    background-color: #dbeafe;
+    color: #1e40af;
+  }
+  
+  .message {
+    margin-top: 8px;
+  }
+  
+  .metadata {
+    margin-top: 8px;
+    padding: 8px;
+    background-color: #f9fafb;
+    border-radius: 4px;
+    font-size: 14px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+  
+  .loading {
+    text-align: center;
+    padding: 24px;
+    color: #666;
+  }
+  
+  .error {
+    color: #dc2626;
+    text-align: center;
+    padding: 24px;
+  }
+  
+  /* Hover effects */
+  .logItem:hover {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .select:hover {
+    border-color: #999;
+  }
+  
+  /* Focus states */
+  .select:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .container {
+      padding: 16px;
+    }
+  
+    .logHeader {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  
+    .metadata {
+      font-size: 12px;
+    }
+  }
+```
+
+```ts
+// app/admin/logs/page.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+import { format } from 'date-fns';
+import styles from './logs.module.css';
+
+interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  metadata?: any;
+}
+
+export default function LogsPage() {
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'error' | 'info' | 'warn'>('all');
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  async function fetchLogs() {
+    try {
+      const response = await fetch('/api/logs/view');
+      if (!response.ok) throw new Error('Failed to fetch logs');
+      
+      const data = await response.json();
+      setLogs(data.logs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error fetching logs');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filteredLogs = logs.filter(log => 
+    filter === 'all' ? true : log.level === filter
+  );
+
+  if (loading) return <div className={styles.loading}>Loading logs...</div>;
+  if (error) return <div className={styles.error}>Error: {error}</div>;
+
+  return (
+    <div className={styles.container}>
+      <h1 className={styles.title}>System Logs</h1>
+      
+      <div className={styles.filterContainer}>
+        <select 
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as any)}
+          className={styles.select}
+        >
+          <option value="all">All Logs</option>
+          <option value="error">Errors</option>
+          <option value="warn">Warnings</option>
+          <option value="info">Info</option>
+        </select>
+      </div>
+
+      <div className={styles.logsContainer}>
+        {filteredLogs.map((log, index) => (
+          <div 
+            key={index}
+            className={`${styles.logItem} ${
+              log.level === 'error' ? styles.errorLog :
+              log.level === 'warn' ? styles.warnLog :
+              styles.infoLog
+            }`}
+          >
+            <div className={styles.logHeader}>
+              <span className={styles.timestamp}>
+                {format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss')}
+              </span>
+              <span className={`${styles.level} ${
+                log.level === 'error' ? styles.errorLevel :
+                log.level === 'warn' ? styles.warnLevel :
+                styles.infoLevel
+              }`}>
+                {log.level.toUpperCase()}
+              </span>
+            </div>
+            
+            <div className={styles.message}>{log.message}</div>
+            
+            {log.metadata && (
+              <pre className={styles.metadata}>
+                {JSON.stringify(log.metadata, null, 2)}
+              </pre>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+
