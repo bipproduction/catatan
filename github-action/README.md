@@ -1,4 +1,4 @@
-```ts
+```yml
 name: test jalankan obake
 on:
   workflow_dispatch:
