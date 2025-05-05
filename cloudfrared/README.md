@@ -93,3 +93,9 @@ jalankan perintah di terminal
 untuk cek jika port 22 sudah terbuka
 
 `sudo lsof -i :22`
+
+jadiin server jalan terus dimac
+
+`sudo systemsetup -setcomputersleep Never`
+
+`sudo caffeinate -dimsu &`
